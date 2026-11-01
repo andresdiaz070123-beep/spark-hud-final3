@@ -1,0 +1,345 @@
+name: Construir APK Spark Go
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar archivos
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.4'
+
+      - name: Armar base Android
+        run: |
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/java/com/carlos/sparkgolauncher
+          cp index.html app/src/main/assets/
+          if [ -f spark_rojo.png ]; then cp spark_rojo.png app/src/main/assets/; fi
+
+          cat << 'EOF' > settings.gradle
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "SparkGoLauncher"
+          include ':app'
+          EOF
+
+          cat << 'EOF' > app/build.gradle
+          plugins { id 'com.android.application' version '8.2.0' }
+          android {
+              namespace 'com.carlos.sparkgolauncher'
+              compileSdk 33
+              defaultConfig {
+                  applicationId "com.carlos.sparkgolauncher"
+                  minSdk 21
+                  targetSdk 27
+                  versionCode 4
+                  versionName "4.0"
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_1_8
+                  targetCompatibility JavaVersion.VERSION_1_8
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.carlos.sparkgolauncher">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+              <application
+                  android:allowBackup="true"
+                  android:label="Spark Go Launcher"
+                  android:usesCleartextTraffic="true"
+                  android:hardwareAccelerated="true"
+                  android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+                  <activity
+                      android:name=".MainActivity"
+                      android:launchMode="singleTask"
+                      android:screenOrientation="landscape"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.HOME" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+- name: Crear puente Java y Compilar APK
+        run: |
+          cat << 'EOF' > app/src/main/java/com/carlos/sparkgolauncher/MainActivity.java
+          package com.carlos.sparkgolauncher;
+
+          import android.Manifest;
+          import android.app.Activity;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.content.pm.ResolveInfo;
+          import android.location.Location;
+          import android.location.LocationListener;
+          import android.location.LocationManager;
+          import android.media.AudioManager;
+          import android.net.Uri;
+          import android.net.http.SslError;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.StrictMode;
+          import android.os.SystemClock;
+          import android.provider.Settings;
+          import android.view.KeyEvent;
+          import android.webkit.GeolocationPermissions;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.SslErrorHandler;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+          import java.io.File;
+          import java.util.Collections;
+          import java.util.List;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+              private Location ultimaUbicacion = null;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  StrictMode.VmPolicy.Builder builder = new StrictMode.VmPolicy.Builder();
+                  StrictMode.setVmPolicy(builder.build());
+
+                  webView = new WebView(this);
+                  WebSettings s = webView.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setDatabaseEnabled(true);
+                  s.setAllowFileAccess(true);
+                  s.setAllowContentAccess(true);
+                  s.setGeolocationEnabled(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  if (Build.VERSION.SDK_INT >= 21) s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public void onReceivedSslError(WebView v, SslErrorHandler h, SslError e) { h.proceed(); }
+                  });
+
+                  webView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onGeolocationPermissionsShowPrompt(String o, GeolocationPermissions.Callback cb) {
+                          cb.invoke(o, true, false);
+                      }
+                  });
+
+                  webView.addJavascriptInterface(new RadioBridge(this), "AndroidBridge");
+                  webView.loadUrl("file:///android_asset/index.html");
+                  setContentView(webView);
+                  if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                      requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.READ_EXTERNAL_STORAGE}, 101);
+                  } else { iniciarGPS(); }
+              }
+
+              @Override public void onBackPressed() {}
+              @Override public void onRequestPermissionsResult(int c, String[] p, int[] r) { iniciarGPS(); }
+
+              private void iniciarGPS() {
+                  try {
+                      LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+                      lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 500, 1, new LocationListener() {
+                          @Override public void onLocationChanged(final Location l) {
+                              ultimaUbicacion = l;
+                              final float kmh = l.hasSpeed() ? l.getSpeed() * 3.6f : 0f;
+                              webView.post(() -> webView.loadUrl("javascript:if(window.actualizarVelocidadGPS) actualizarVelocidadGPS(" + kmh + "," + l.getLatitude() + "," + l.getLongitude() + ");"));
+                          }
+                          @Override public void onStatusChanged(String p, int s, Bundle e) {}
+                          @Override public void onProviderEnabled(String p) {}
+                          @Override public void onProviderDisabled(String p) {}
+                      });
+                  } catch (SecurityException ignored) {}
+              }
+
+              public class RadioBridge {
+                  Context ctx;
+                  RadioBridge(Context c) { this.ctx = c; }
+
+                  @JavascriptInterface public void forceGpsCenter() {
+                      if (ultimaUbicacion != null) {
+                          webView.post(() -> webView.loadUrl("javascript:actualizarMapaCoordenadas(" + ultimaUbicacion.getLatitude() + "," + ultimaUbicacion.getLongitude() + ");"));
+                      }
+                  }
+
+                  @JavascriptInterface public void openGoogleMapsApp() {
+                      PackageManager pm = ctx.getPackageManager();
+                      Intent launch = pm.getLaunchIntentForPackage("com.google.android.apps.maps");
+                      if (launch != null) {
+                          launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                          ctx.startActivity(launch);
+                          return;
+                      }
+                      launchByLabel("Maps");
+                  }
+
+                  @JavascriptInterface public void openNativeVideoApp() {
+                      PackageManager pm = ctx.getPackageManager();
+                      Intent main = new Intent(Intent.ACTION_MAIN, null).addCategory(Intent.CATEGORY_LAUNCHER);
+                      List<ResolveInfo> apps = pm.queryIntentActivities(main, 0);
+                      for (ResolveInfo a : apps) {
+                          String l = a.loadLabel(pm).toString().trim();
+                          if (l.equalsIgnoreCase("Video") || l.equalsIgnoreCase("Vídeo")) {
+                              launchPackage(a.activityInfo.packageName);
+                              return;
+                          }
+                      }
+                      for (ResolveInfo a : apps) {
+                          String l = a.loadLabel(pm).toString().toLowerCase();
+                          String p = a.activityInfo.packageName.toLowerCase();
+                          if (l.contains("video") || p.contains("videoplayer") || p.contains(".video")) {
+                              launchPackage(a.activityInfo.packageName);
+                              return;
+                          }
+                      }
+                  }
+
+                  @JavascriptInterface public String scanUsbVideos() {
+                      JSONArray arr = new JSONArray();
+                      String[] roots = {"/storage", "/mnt/media_rw", "/mnt/usb_storage", "/mnt/udisk", "/sdcard"};
+                      for (String r : roots) {
+                          buscarMp4(new File(r), arr, 0);
+                      }
+                      return arr.toString();
+                  }
+
+                  private void buscarMp4(File dir, JSONArray arr, int depth) {
+                      if (dir == null || !dir.exists() || depth > 3 || arr.length() >= 40) return;
+                      File[] files = dir.listFiles();
+                      if (files == null) return;
+                      for (File f : files) {
+                          if (f.isDirectory() && !f.getName().startsWith(".")) {
+                              buscarMp4(f, arr, depth + 1);
+                          } else {
+                              String n = f.getName().toLowerCase();
+                              if (n.endsWith(".mp4") || n.endsWith(".mkv") || n.endsWith(".avi")) {
+                                  try {
+                                      JSONObject o = new JSONObject();
+                                      o.put("name", f.getName());
+                                      o.put("path", f.getAbsolutePath());
+                                      arr.put(o);
+                                  } catch (Exception ignored) {}
+                              }
+                          }
+                      }
+                  }
+
+                  @JavascriptInterface public void playVideoInNativeApp(String path) {
+                      try {
+                          File f = new File(path);
+                          Intent i = new Intent(Intent.ACTION_VIEW);
+                          i.setDataAndType(Uri.fromFile(f), "video/*");
+                          i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                          ctx.startActivity(i);
+                      } catch (Exception e) {
+                          openNativeVideoApp();
+                      }
+                  }
+
+                  @JavascriptInterface public void openSystemSettings() {
+                      try { Intent i = new Intent(Settings.ACTION_SETTINGS); i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); ctx.startActivity(i); } catch (Exception ignored) {}
+                  }
+
+                  @JavascriptInterface public void openFileManager() {
+                      PackageManager pm = ctx.getPackageManager();
+                      Intent main = new Intent(Intent.ACTION_MAIN, null).addCategory(Intent.CATEGORY_LAUNCHER);
+                      String[] claves = {"admin", "archivos", "file", "explorer", "explorador", "gestor", "documentsui"};
+                      for (ResolveInfo a : pm.queryIntentActivities(main, 0)) {
+                          String l = a.loadLabel(pm).toString().toLowerCase(), p = a.activityInfo.packageName.toLowerCase();
+                          for (String c : claves) if (l.contains(c) || p.contains(c)) { launchPackage(a.activityInfo.packageName); return; }
+                      }
+                  }
+
+                  @JavascriptInterface public String getInstalledApps() {
+                      JSONArray arr = new JSONArray();
+                      try {
+                          PackageManager pm = ctx.getPackageManager();
+                          Intent main = new Intent(Intent.ACTION_MAIN, null).addCategory(Intent.CATEGORY_LAUNCHER);
+                          List<ResolveInfo> apps = pm.queryIntentActivities(main, 0);
+                          Collections.sort(apps, (a, b) -> a.loadLabel(pm).toString().compareToIgnoreCase(b.loadLabel(pm).toString()));
+                          for (ResolveInfo a : apps) {
+                              if (!a.activityInfo.packageName.equals(ctx.getPackageName())) {
+                                  JSONObject o = new JSONObject();
+                                  o.put("label", a.loadLabel(pm).toString().trim());
+                                  o.put("pkg", a.activityInfo.packageName);
+                                  arr.put(o);
+                              }
+                          }
+                      } catch (Exception ignored) {}
+                      return arr.toString();
+                  }
+
+                  @JavascriptInterface public void launchPackage(String pkg) {
+                      try {
+                          PackageManager pm = ctx.getPackageManager();
+                          Intent l = pm.getLaunchIntentForPackage(pkg);
+                          if (l != null) { l.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT); ctx.startActivity(l); }
+                      } catch (Exception ignored) {}
+                  }
+
+                  @JavascriptInterface public void launchByLabel(String n) {
+                      PackageManager pm = ctx.getPackageManager();
+                      Intent main = new Intent(Intent.ACTION_MAIN, null).addCategory(Intent.CATEGORY_LAUNCHER);
+                      String b = n.toLowerCase();
+                      for (ResolveInfo a : pm.queryIntentActivities(main, 0)) {
+                          String l = a.loadLabel(pm).toString().toLowerCase(), p = a.activityInfo.packageName.toLowerCase();
+                          if (l.contains(b) || (b.equals("androidauto") && (l.contains("cplink") || p.contains("cplink") || p.contains("zlink"))) ||
+                             (b.equals("maps") && p.contains("maps")) || (b.equals("radio") && (l.contains("radio") || p.contains("radio"))) ||
+                             (b.equals("bt") && (l.contains("bt") || l.contains("bluetooth"))) || (b.equals("tel") && (l.contains("tel") || l.contains("llamada") || p.contains("dialer")))) {
+                              launchPackage(a.activityInfo.packageName); return;
+                          }
+                      }
+                  }
+
+                  @JavascriptInterface public void mediaControl(String cmd) {
+                      AudioManager am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
+                      int k = "next".equals(cmd) ? KeyEvent.KEYCODE_MEDIA_NEXT : ("prev".equals(cmd) ? KeyEvent.KEYCODE_MEDIA_PREVIOUS : KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE);
+                      long t = SystemClock.uptimeMillis();
+                      am.dispatchMediaKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_DOWN, k, 0));
+                      am.dispatchMediaKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_UP, k, 0));
+                  }
+              }
+          }
+          EOF
+          gradle assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk SparkGoLauncher.apk
+
+      - name: Entregar APK listo para descargar
+        uses: actions/upload-artifact@v4
+        with:
+          name: SparkGoLauncher-Instalador
+          path: SparkGoLauncher.apk

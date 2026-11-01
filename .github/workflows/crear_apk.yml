@@ -22,7 +22,7 @@ jobs:
         with:
           gradle-version: '8.4'
 
-      - name: Armar base Android
+      - name: Armar base Android y Compilar APK
         run: |
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/java/com/carlos/sparkgolauncher
@@ -50,8 +50,8 @@ jobs:
                   applicationId "com.carlos.sparkgolauncher"
                   minSdk 21
                   targetSdk 27
-                  versionCode 4
-                  versionName "4.0"
+                  versionCode 5
+                  versionName "5.0"
               }
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_1_8
@@ -90,8 +90,7 @@ jobs:
               </application>
           </manifest>
           EOF
-- name: Crear puente Java y Compilar APK
-        run: |
+
           cat << 'EOF' > app/src/main/java/com/carlos/sparkgolauncher/MainActivity.java
           package com.carlos.sparkgolauncher;
 
@@ -316,12 +315,12 @@ jobs:
                       Intent main = new Intent(Intent.ACTION_MAIN, null).addCategory(Intent.CATEGORY_LAUNCHER);
                       String b = n.toLowerCase();
                       for (ResolveInfo a : pm.queryIntentActivities(main, 0)) {
-                          String l = a.loadLabel(pm).toString().toLowerCase(), p = a.activityInfo.packageName.toLowerCase();
-                          if (l.contains(b) || (b.equals("androidauto") && (l.contains("cplink") || p.contains("cplink") || p.contains("zlink"))) ||
-                             (b.equals("maps") && p.contains("maps")) || (b.equals("radio") && (l.contains("radio") || p.contains("radio"))) ||
-                             (b.equals("bt") && (l.contains("bt") || l.contains("bluetooth"))) || (b.equals("tel") && (l.contains("tel") || l.contains("llamada") || p.contains("dialer")))) {
-                              launchPackage(a.activityInfo.packageName); return;
-                          }
+                        String l = a.loadLabel(pm).toString().toLowerCase(), p = a.activityInfo.packageName.toLowerCase();
+                        if (l.contains(b) || (b.equals("androidauto") && (l.contains("cplink") || p.contains("cplink") || p.contains("zlink"))) ||
+                           (b.equals("maps") && p.contains("maps")) || (b.equals("radio") && (l.contains("radio") || p.contains("radio"))) ||
+                           (b.equals("bt") && (l.contains("bt") || l.contains("bluetooth"))) || (b.equals("tel") && (l.contains("tel") || p.contains("dialer")))) {
+                            launchPackage(a.activityInfo.packageName); return;
+                        }
                       }
                   }
 

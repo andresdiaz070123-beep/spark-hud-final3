@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Spark Go HUD - Andres Diaz</title>
+<style>
+  :root {
+    --bg-deep: #020510;
+    --glass-border: rgba(0, 242, 254, 0.28);
+    --cyan: #00f2fe;
+    --aqua: #22f5d8;
+    --blue: #0099ff;
+    --red: #ff2233;
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+  body { background: radial-gradient(circle at 50% 0%, #0d1b38 0%, var(--bg-deep) 75%); color: #f8fafc; height: 100vh; width: 100vw; display: flex; flex-direction: column; overflow: hidden; padding: 6px 10px; touch-action: manipulation; }
+
+  .top-bar { display: flex; justify-content: space-between; align-items: center; padding: 2px 6px 6px; font-size: 12px; z-index: 20; }
+  .user-pill { display: flex; align-items: center; gap: 9px; cursor: pointer; padding: 3px 10px; border-radius: 10px; background: linear-gradient(90deg, rgba(0,242,254,0.14) 0%, rgba(0,153,255,0.03) 100%); border-left: 3px solid var(--cyan); }
+  .pulse-dot { width: 10px; height: 10px; background: var(--red); border-radius: 50%; box-shadow: 0 0 12px var(--red); }
+  .futuristic-name { font-size: 18px; font-weight: 900; letter-spacing: 2.2px; text-transform: uppercase; font-style: italic; background: linear-gradient(90deg, #ffffff 0%, #a5f3fc 55%, #00f2fe 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 0 14px rgba(0, 242, 254, 0.45); font-family: 'Trebuchet MS', 'Arial Black', sans-serif; }
+  .edit-mini { font-size: 10px; color: var(--cyan); border: 1px solid rgba(0,242,254,0.45); padding: 1px 6px; border-radius: 6px; }
+  .top-clock { font-size: 14px; font-weight: 800; color: var(--cyan); text-transform: capitalize; }
+  .top-right-group { display: flex; align-items: center; gap: 8px; }
+  .btn-swap { background: rgba(0, 242, 254, 0.18); border: 1px solid var(--cyan); color: #fff; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 8px; cursor: pointer; }
+  .btn-swap:active { background: var(--cyan); color: #000; }
+  .col-plate-mini { background: linear-gradient(180deg, #ffde00 0%, #f5b700 100%); color: #0a0a0a; padding: 2px 9px; border-radius: 6px; border: 2px solid #111; font-size: 13px; font-weight: 900; letter-spacing: 1px; font-family: 'Arial Black', sans-serif; cursor: pointer; }
+  .pico-pill { padding: 3px 10px; border-radius: 30px; font-weight: 800; font-size: 11px; background: rgba(16, 185, 129, 0.25); border: 1px solid var(--ok); }
+
+  .dashboard { display: flex; flex-direction: row; gap: 10px; flex: 1; min-height: 0; margin-bottom: 6px; z-index: 10; }
+  .col-side { flex: 1.05; min-width: 0; }
+  .col-center { flex: 1.4; min-width: 0; }
+  .dashboard.swapped #panel-map { order: 3; }
+  .dashboard.swapped #panel-center { order: 2; }
+  .dashboard.swapped #panel-video { order: 1; }
+
+  .card { background: linear-gradient(160deg, rgba(16, 28, 52, 0.9) 0%, rgba(4, 9, 22, 0.96) 100%); border-radius: 18px; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--glass-border); box-shadow: 0 8px 25px rgba(0,0,0,0.65); position: relative; overflow: hidden; }
+  .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+  .panel-title { font-size: 11px; font-weight: 800; color: var(--cyan); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .header-btns { display: flex; gap: 5px; }
+  .btn-top-mini { background: rgba(0, 242, 254, 0.16); border: 1px solid var(--cyan); color: #fff; font-size: 10px; font-weight: 700; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+  .btn-top-mini:active { background: var(--cyan); color: #000; }
+
+  .map-live-box { width: 100%; flex: 1; background: #071324; border-radius: 12px; border: 1px solid rgba(0, 242, 254, 0.35); overflow: hidden; position: relative; margin-bottom: 6px; }
+  .map-frame { width: 100%; height: 100%; border: none; position: relative; z-index: 2; filter: invert(90%) hue-rotate(180deg) brightness(95%) contrast(90%); }
+  .map-overlay-bar { position: absolute; bottom: 6px; left: 6px; right: 6px; background: rgba(2, 6, 23, 0.86); border: 1px solid rgba(0, 242, 254, 0.4); border-radius: 8px; padding: 4px 8px; display: flex; justify-content: space-between; align-items: center; z-index: 5; font-size: 10px; color: #cbd5e1; }
+
+  .docs-row { display: flex; gap: 6px; }
+  .doc-mini { flex: 1; background: rgba(255, 255, 255, 0.05); padding: 5px 8px; border-radius: 10px; border-left: 3px solid var(--ok); cursor: pointer; }
+  .doc-mini h4 { font-size: 8px; color: #94a3b8; text-transform: uppercase; }
+  .doc-mini .days { font-size: 12px; font-weight: 900; color: var(--cyan); }
+  .doc-mini .date { font-size: 8px; color: #94a3b8; }
+
+  .center-showroom { background: radial-gradient(circle at 50% 42%, rgba(0, 140, 255, 0.18) 0%, rgba(255, 34, 51, 0.10) 55%, rgba(3, 7, 18, 0.98) 95%); border: 1px solid rgba(0, 242, 254, 0.4); padding: 4px 6px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; }
+  .gauge-stage { width: 100%; height: 33%; display: flex; align-items: center; justify-content: center; position: relative; z-index: 3; }
+  .gauge-svg { width: 100%; height: 100%; max-width: 290px; overflow: visible; }
+  .car-pedestal { width: 100%; height: 60%; display: flex; align-items: center; justify-content: center; position: relative; min-height: 0; }
+  .neon-ring { position: absolute; bottom: 6px; width: 88%; height: 22px; background: radial-gradient(ellipse at center, rgba(0, 242, 254, 0.65) 0%, rgba(255, 34, 51, 0.45) 50%, transparent 76%); border-radius: 50%; border-bottom: 2px solid var(--cyan); z-index: 1; }
+  .car-hero-img { width: 100%; height: 100%; max-height: 205px; object-fit: contain; filter: drop-shadow(0 12px 18px rgba(0,0,0,0.92)) drop-shadow(0 0 14px rgba(255,34,51,0.32)); z-index: 2; transform: scale(1.12); }
+
+  .video-screen-box { width: 100%; flex: 1; background: #040917; border-radius: 12px; border: 1px solid rgba(0, 242, 254, 0.35); position: relative; overflow: hidden; display: flex; flex-direction: column; }
+  .usb-list-box { width: 100%; height: 100%; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 5px; }
+  .usb-video-item { background: rgba(255,255,255,0.06); border: 1px solid rgba(0,242,254,0.22); border-radius: 8px; padding: 7px 9px; font-size: 11px; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+  .usb-video-item:active { background: var(--cyan); color: #000; }
+  .video-ctrls-bar { display: flex; justify-content: space-around; align-items: center; background: rgba(255,255,255,0.05); padding: 5px 8px; border-radius: 10px; margin-top: 6px; }
+  .v-btn { background: rgba(255,255,255,0.12); border: none; color: #fff; width: 42px; height: 32px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  .v-btn:active { background: var(--cyan); color: #000; }
+  .v-btn.play-main { background: linear-gradient(135deg, var(--red), #be123c); width: 64px; font-weight: 900; font-size: 12px; }
+
+  .bottom-bar { height: 48px; background: rgba(11, 19, 38, 0.96); border-radius: 14px; display: flex; align-items: center; justify-content: space-between; padding: 0 6px; border: 1px solid var(--glass-border); z-index: 20; gap: 4px; }
+  .pill-btn { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14); color: #e2e8f0; font-size: 11px; font-weight: 800; padding: 8px 6px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; flex: 1; white-space: nowrap; }
+  .pill-btn.aa-bottom { background: linear-gradient(135deg, #0284c7, #2563eb); border-color: var(--cyan); color: #fff; }
+  .pill-btn.app-drawer-btn { background: rgba(0, 242, 254, 0.16); border-color: var(--cyan); color: var(--cyan); }
+  .pill-btn:active { background: var(--cyan); color: #000; }
+
+  .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(2, 6, 23, 0.92); align-items: center; justify-content: center; z-index: 100; }
+  .modal-box { background: #0f172a; padding: 16px 20px; border-radius: 18px; width: 440px; max-width: 92vw; border: 1px solid var(--cyan); }
+  .modal-box h3 { margin-bottom: 10px; font-size: 14px; color: var(--cyan); text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .field label { display: block; font-size: 11px; color: #94a3b8; margin-bottom: 3px; }
+  .field input { width: 100%; padding: 7px 9px; border-radius: 8px; border: 1px solid #334155; background: #030712; color: #fff; font-size: 13px; font-weight: 700; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 14px; }
+  .modal-actions button { flex: 1; padding: 9px; border-radius: 10px; border: none; font-weight: 800; cursor: pointer; }
+  .btn-ok { background: linear-gradient(90deg, var(--cyan), #3b82f6); color: #000; }
+  .btn-cancel { background: #334155; color: #fff; }
+  .apps-modal-box { width: 86vw; height: 80vh; display: flex; flex-direction: column; }
+  .apps-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; overflow-y: auto; flex: 1; padding: 6px; }
+  .app-item { background: rgba(255,255,255,0.07); border: 1px solid rgba(0,242,254,0.3); border-radius: 12px; padding: 10px 6px; text-align: center; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+  .app-item:active { background: var(--cyan); color: #000; }
+  .app-icon-circle { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #0099ff, #00f2fe); color: #020510; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 15px; }
+</style>
+</head>
+<body>
+  <div class="top-bar">
+    <div class="user-pill" onclick="abrirAjustes()">
+      <span class="pulse-dot"></span>
+      <span class="futuristic-name" id="user-name-label">ANDRES DIAZ</span>
+      <span class="edit-mini">✎</span>
+    </div>
+    <div class="top-clock">
+      <span id="clock">10:36 a.m.</span> • <span id="date">Dom, 1 nov</span>
+    </div>
+    <div class="top-right-group">
+      <button class="btn-swap" onclick="intercambiarPaneles()">⇄ Intercambiar Mapa/Video</button>
+      <div class="col-plate-mini" id="plate-text" onclick="abrirAjustes()">CYK 160</div>
+      <div id="pico-placa-status" class="pico-pill">🟢 Fin de Semana Libre</div>
+    </div>
+  </div>
+
+  <div class="dashboard" id="main-dashboard">
+    <div class="card col-side" id="panel-map">
+      <div class="panel-header">
+        <span class="panel-title">📍 Mapa GPS en Vivo</span>
+        <div class="header-btns">
+          <button class="btn-top-mini" onclick="centrarMapaGPS()">🔄 Centrar</button>
+          <button class="btn-top-mini" onclick="abrirGoogleMapsRadio()">🗺️ App Maps</button>
+        </div>
+      </div>
+      <div class="map-live-box">
+        <iframe id="live-map-frame" class="map-frame" src="https://www.openstreetmap.org/export/embed.html?bbox=-74.1645,4.5181,-74.1045,4.5581&layer=mapnik&marker=4.5381,-74.1345"></iframe>
+        <div class="map-overlay-bar">
+          <span id="gps-coords-text">📡 GPS: 4.5381, -74.1345</span>
+          <button class="btn-top-mini" onclick="abrirGoogleMapsRadio()">Abrir Google Maps</button>
+        </div>
+      </div>
+      <div class="docs-row">
+        <div class="doc-mini" id="soat-card" onclick="abrirAjustes()">
+          <h4>🛡️ SOAT</h4>
+          <div class="days" id="soat-days">300 días</div>
+          <div class="date" id="soat-date">28/08/2027</div>
+        </div>
+        <div class="doc-mini" id="tecno-card" onclick="abrirAjustes()">
+          <h4>🔧 Tecno</h4>
+          <div class="days" id="tecno-days">301 días</div>
+          <div class="date" id="tecno-date">29/08/2027</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card center-showroom col-center" id="panel-center">
+      <div class="gauge-stage">
+        <svg viewBox="12 6 196 156" class="gauge-svg">
+          <defs>
+            <radialGradient id="blueHubGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="rgba(0, 195, 255, 0.55)"/>
+              <stop offset="55%" stop-color="rgba(0, 110, 255, 0.25)"/>
+              <stop offset="100%" stop-color="rgba(0, 0, 0, 0)"/>
+            </radialGradient>
+          </defs>
+          <circle cx="110" cy="110" r="76" fill="url(#blueHubGlow)"/>
+          <g stroke="#0099ff" stroke-width="3.6" stroke-linecap="round">
+            <line x1="110" y1="14" x2="110" y2="30" transform="rotate(-120 110 110)"/>
+            <line x1="110" y1="14" x2="110" y2="30" transform="rotate(-100 110 110)"/>
+            <line x1="110" y1="14" x2="110" y2="30" transform="rotate(-80 110 110)"/>
+            <line x1="110" y1="14" x2="110" y2="30" transform="rotate(-60 110 110)"/>
+            <line x1="110" y1="14" x2="110" y2="30" transform="rotate(-40 110 110)"/>
+            <line x1="110" y1="14" x2="110" y2="30" transform="rotate(-20 110 110)"/>
+            <line x1="110" y1="14" x2="110" y2="30"/>
+            <line x1="110" y1="14" x2="110" y2="30" transform="rotate(20 110 110)"/>
+            <line x1="110" y1="14" x2="110" y2="30" transform="rotate(40 110 110)"/>
+            <line x1="110" y1="14" x2="110" y2="30" transform="rotate(60 110 110)"/>
+            <line x1="110" y1="14" x2="110" y2="30" transform="rotate(80 110 110)"/>
+            <line x1="110" y1="14" x2="110" y2="30" transform="rotate(100 110 110)"/>
+            <line x1="110" y1="14" x2="110" y2="30" transform="rotate(120 110 110)"/>
+          </g>
+          <g stroke="#0099ff" stroke-width="2" opacity="0.8" stroke-linecap="round">
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(-130 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(-110 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(-90 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(-70 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(-50 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(-30 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(-10 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(10 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(30 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(50 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(70 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(90 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(110 110 110)"/>
+            <line x1="110" y1="16" x2="110" y2="26" transform="rotate(130 110 110)"/>
+          </g>
+          <g fill="#22f5d8" font-size="13.5" font-weight="900" font-family="Arial Black, sans-serif" text-anchor="middle">
+            <text x="53" y="148">10</text>
+            <text x="45" y="126">20</text>
+            <text x="45" y="103">30</text>
+            <text x="53" y="81">40</text>
+            <text x="68" y="64">50</text>
+            <text x="87" y="52">60</text>
+            <text x="110" y="48">70</text>
+            <text x="133" y="52">80</text>
+            <text x="152" y="64">90</text>
+            <text x="167" y="81">100</text>
+            <text x="175" y="103">110</text>
+            <text x="175" y="126">120</text>
+            <text x="167" y="148">130</text>
+          </g>
+          <g id="speed-needle" transform="rotate(-140 110 110)">
+            <polygon points="105,110 115,110 111.5,28 108.5,28" fill="#ff1e27"/>
+          </g>
+          <circle cx="110" cy="110" r="30" fill="#030918" stroke="#00d2ff" stroke-width="3.2"/>
+          <text x="110" y="115" id="speed" text-anchor="middle" fill="#ffffff" font-size="24" font-weight="900">0</text>
+          <text x="110" y="127" text-anchor="middle" fill="#22f5d8" font-size="8" font-weight="900">km/h</text>
+        </svg>
+      </div>
+      <div class="car-pedestal">
+        <img src="spark_rojo.png" class="car-hero-img" alt="Chevrolet Spark Go">
+        <div class="neon-ring"></div>
+      </div>
+    </div>
+
+    <div class="card col-side" id="panel-video">
+      <div class="panel-header">
+        <span class="panel-title" id="video-track-name">🎬 Reproductor Video Nativo</span>
+        <div class="header-btns">
+          <button class="btn-top-mini" onclick="escanearVideosUSB()">🔄 Buscar USB</button>
+          <button class="btn-top-mini" onclick="abrirAppVideoNativa()">📺 App Video</button>
+        </div>
+      </div>
+      <div class="video-screen-box">
+        <div id="usb-video-list" class="usb-list-box">
+          <div class="usb-video-item" onclick="abrirAppVideoNativa()">
+            <span>▶️ Abrir App "Video" Original del Radio</span>
+            <b style="color:#00f2fe;">ABRIR</b>
+          </div>
+          <div class="usb-video-item" onclick="escanearVideosUSB()">
+            <span>📂 Toca aquí para listar videos de tu USB</span>
+            <b style="color:#22f5d8;">BUSCAR</b>
+          </div>
+        </div>
+      </div>
+      <div class="video-ctrls-bar">
+        <button class="v-btn" onclick="controlMultimedia('prev')">⏮</button>
+        <button class="v-btn play-main" onclick="abrirAppVideoNativa()">▶ VIDEO</button>
+        <button class="v-btn" onclick="controlMultimedia('play')">⏯</button>
+        <button class="v-btn" onclick="controlMultimedia('next')">⏭</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-bar">
+    <button class="pill-btn aa-bottom" onclick="abrirAppNativa('AndroidAuto')">🚘 Android Auto</button>
+    <button class="pill-btn" onclick="abrirAppNativa('Radio')">📻 Radio</button>
+    <button class="pill-btn" onclick="abrirGestorArchivos()">📁 Archivos</button>
+    <button class="pill-btn" onclick="abrirConfiguracionRadio()">⚙️ Config. Radio</button>
+    <button class="pill-btn app-drawer-btn" onclick="abrirCajonApps()">📱 App</button>
+    <button class="pill-btn" onclick="abrirAppNativa('BT')">🎵 BT Música</button>
+    <button class="pill-btn" onclick="abrirAppNativa('Tel')">📞 Teléfono</button>
+    <button class="pill-btn" onclick="abrirAjustes()">✏️ Datos</button>
+  </div>
+  <div class="modal" id="settings-modal">
+    <div class="modal-box">
+      <h3>⚙️ Datos del Vehículo</h3>
+      <div class="form-grid">
+        <div class="field"><label>Tu Nombre:</label><input type="text" id="input-name"></div>
+        <div class="field"><label>Placa:</label><input type="text" id="input-plate"></div>
+        <div class="field"><label>SOAT:</label><input type="date" id="input-soat"></div>
+        <div class="field"><label>Tecnomecánica:</label><input type="date" id="input-tecno"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="cerrarAjustes()">Cancelar</button>
+        <button class="btn-ok" onclick="guardarAjustes()">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="apps-modal">
+    <div class="modal-box apps-modal-box">
+      <h3><span>📱 Aplicaciones del Radio</span><button class="btn-top-mini" onclick="cerrarCajonApps()">✕ Cerrar</button></h3>
+      <div class="apps-grid" id="apps-grid-container"></div>
+    </div>
+  </div>
+
+<script>
+  function getSt(k, d) { try { return localStorage.getItem(k) || d; } catch(e) { return d; } }
+  function setSt(k, v) { try { localStorage.setItem(k, v); } catch(e) {} }
+
+  var datos = {
+    nombre: getSt('spark_user', 'Andres Diaz'),
+    placa: getSt('spark_plate', 'CYK160'),
+    soat: getSt('spark_soat', '2027-08-28'),
+    tecno: getSt('spark_tecno', '2027-08-29')
+  };
+
+  if (getSt('spark_swapped', '0') === '1') document.getElementById('main-dashboard').classList.add('swapped');
+
+  function intercambiarPaneles() {
+    var d = document.getElementById('main-dashboard');
+    d.classList.toggle('swapped');
+    setSt('spark_swapped', d.classList.contains('swapped') ? '1' : '0');
+  }
+
+  function actualizarAgujaVelocimetro(kmh) {
+    var vel = Math.max(0, Math.min(140, kmh));
+    var ang = -140 + (vel / 140) * 280;
+    document.getElementById('speed').textContent = Math.round(kmh);
+    document.getElementById('speed-needle').setAttribute('transform', 'rotate(' + ang + ' 110 110)');
+  }
+
+  var mapaListo = false;
+  function actualizarMapaCoordenadas(lat, lon) {
+    if (!lat || !lon) return;
+    document.getElementById('gps-coords-text').innerText = '📡 GPS: ' + lat.toFixed(4) + ', ' + lon.toFixed(4);
+    var d = 0.015;
+    document.getElementById('live-map-frame').src =
+      'https://www.openstreetmap.org/export/embed.html?bbox=' + (lon-d) + ',' + (lat-d) + ',' + (lon+d) + ',' + (lat+d) + '&layer=mapnik&marker=' + lat + ',' + lon;
+  }
+
+  function centrarMapaGPS() {
+    if (window.AndroidBridge && window.AndroidBridge.forceGpsCenter) window.AndroidBridge.forceGpsCenter();
+  }
+
+  function abrirGoogleMapsRadio() {
+    if (window.AndroidBridge && window.AndroidBridge.openGoogleMapsApp) {
+      window.AndroidBridge.openGoogleMapsApp();
+    }
+  }
+
+  function abrirAppVideoNativa() {
+    if (window.AndroidBridge && window.AndroidBridge.openNativeVideoApp) {
+      window.AndroidBridge.openNativeVideoApp();
+    }
+  }
+
+  function controlMultimedia(cmd) {
+    if (window.AndroidBridge && window.AndroidBridge.mediaControl) {
+      window.AndroidBridge.mediaControl(cmd);
+    }
+  }
+
+  function escanearVideosUSB() {
+    var box = document.getElementById('usb-video-list');
+    if (!window.AndroidBridge || !window.AndroidBridge.scanUsbVideos) return;
+    try {
+      var arr = JSON.parse(window.AndroidBridge.scanUsbVideos());
+      box.innerHTML = '<div class="usb-video-item" onclick="abrirAppVideoNativa()"><span>📺 Abrir App "Video" Original del Radio</span><b style="color:#00f2fe;">APP VIDEO</b></div>';
+      if (arr.length === 0) {
+        box.innerHTML += '<div class="usb-video-item" onclick="abrirAppVideoNativa()"><span>No se detectaron MP4 directos. Toca para abrir App Video.</span><b style="color:#f59e0b;">ABRIR</b></div>';
+        return;
+      }
+      document.getElementById('video-track-name').innerText = '🎬 Videos USB (' + arr.length + ')';
+      for (var i = 0; i < arr.length; i++) {
+        (function(v) {
+          var row = document.createElement('div');
+          row.className = 'usb-video-item';
+          row.innerHTML = '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:78%;">🎵 ' + v.name + '</span><b style="color:#22f5d8;">▶ VER</b>';
+          row.onclick = function() {
+            window.AndroidBridge.playVideoInNativeApp(v.path);
+          };
+          box.appendChild(row);
+        })(arr[i]);
+      }
+    } catch (e) {}
+  }
+
+  function actualizarRelojYPico() {
+    var d = new Date();
+    var h = d.getHours(), m = d.getMinutes();
+    var ampm = h >= 12 ? 'p.m.' : 'a.m.';
+    var h12 = h % 12; if (h12 === 0) h12 = 12;
+    var mStr = m < 10 ? '0' + m : '' + m;
+    var diasSem = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    var meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    document.getElementById('clock').innerText = h12 + ':' + mStr + ' ' + ampm;
+    document.getElementById('date').innerText = diasSem[d.getDay()] + ', ' + d.getDate() + ' ' + meses[d.getMonth()];
+
+    var badge = document.getElementById('pico-placa-status');
+    var num = datos.placa.replace(/[^0-9]/g, '');
+    var ult = num.length ? parseInt(num.slice(-1), 10) : 0;
+    var impar = [1, 2, 3, 4, 5].indexOf(ult) !== -1;
+    if (d.getDay() === 0 || d.getDay() === 6) {
+      badge.style.background = 'rgba(16, 185, 129, 0.25)';
+      badge.innerText = '🟢 Fin de Semana Libre';
+    } else {
+      var libre = (d.getDate() % 2 === 0 && !impar) || (d.getDate() % 2 === 1 && impar);
+      badge.style.background = libre ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.35)';
+      badge.innerText = libre ? '🟢 Libre para circular' : '🔴 HOY PICO Y PLACA';
+    }
+  }
+
+  function calcDias(fStr, idD, idF) {
+    var p = fStr.split('-');
+    var v = new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
+    var hoy = new Date(); hoy.setHours(0,0,0,0);
+    var dias = Math.round((v - hoy) / 86400000);
+    document.getElementById(idF).innerText = p[2] + '/' + p[1] + '/' + p[0];
+    document.getElementById(idD).innerText = dias < 0 ? 'VENCIDO' : (dias + ' días');
+  }
+
+  function renderizar() {
+    document.getElementById('user-name-label').innerText = datos.nombre.toUpperCase();
+    var pl = datos.placa.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    document.getElementById('plate-text').innerText = pl.length === 6 ? pl.slice(0,3) + ' ' + pl.slice(3) : pl;
+    calcDias(datos.soat, 'soat-days', 'soat-date');
+    calcDias(datos.tecno, 'tecno-days', 'tecno-date');
+    actualizarRelojYPico();
+  }
+
+  function abrirAppNativa(n) { if (window.AndroidBridge) window.AndroidBridge.launchByLabel(n); }
+  function abrirGestorArchivos() { if (window.AndroidBridge) window.AndroidBridge.openFileManager(); }
+  function abrirConfiguracionRadio() { if (window.AndroidBridge) window.AndroidBridge.openSystemSettings(); }
+
+  function abrirCajonApps() {
+    var c = document.getElementById('apps-grid-container');
+    c.innerHTML = '';
+    if (window.AndroidBridge && window.AndroidBridge.getInstalledApps) {
+      var arr = JSON.parse(window.AndroidBridge.getInstalledApps());
+      for (var i = 0; i < arr.length; i++) {
+        (function(a) {
+          var d = document.createElement('div');
+          d.className = 'app-item';
+          d.innerHTML = '<div class="app-icon-circle">' + a.label.charAt(0).toUpperCase() + '</div><span>' + a.label + '</span>';
+          d.onclick = function() { cerrarCajonApps(); window.AndroidBridge.launchPackage(a.pkg); };
+          c.appendChild(d);
+        })(arr[i]);
+      }
+    }
+    document.getElementById('apps-modal').style.display = 'flex';
+  }
+  function cerrarCajonApps() { document.getElementById('apps-modal').style.display = 'none'; }
+
+  window.actualizarVelocidadGPS = function(kmh, lat, lon) {
+    actualizarAgujaVelocimetro(kmh);
+    if (!mapaListo && lat && lon && lat !== 0) { mapaListo = true; actualizarMapaCoordenadas(lat, lon); }
+  };
+
+  function abrirAjustes() {
+    document.getElementById('input-name').value = datos.nombre;
+    document.getElementById('input-plate').value = datos.placa;
+    document.getElementById('input-soat').value = datos.soat;
+    document.getElementById('input-tecno').value = datos.tecno;
+    document.getElementById('settings-modal').style.display = 'flex';
+  }
+  function cerrarAjustes() { document.getElementById('settings-modal').style.display = 'none'; }
+  function guardarAjustes() {
+    datos.nombre = document.getElementById('input-name').value.trim() || 'Andres Diaz';
+    datos.placa = document.getElementById('input-plate').value.trim().toUpperCase() || 'CYK160';
+    datos.soat = document.getElementById('input-soat').value || datos.soat;
+    datos.tecno = document.getElementById('input-tecno').value || datos.tecno;
+    setSt('spark_user', datos.nombre); setSt('spark_plate', datos.placa);
+    setSt('spark_soat', datos.soat); setSt('spark_tecno', datos.tecno);
+    renderizar(); cerrarAjustes();
+  }
+
+  renderizar();
+  setInterval(actualizarRelojYPico, 1000);
+  setTimeout(escanearVideosUSB, 1500);
+</script>
+</body>
+</html>
